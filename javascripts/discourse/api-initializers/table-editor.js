@@ -6,10 +6,11 @@ import { iconNode } from "discourse-common/lib/icon-library";
 import { create } from "virtual-dom";
 import { ajax } from "discourse/lib/ajax";
 import { popupAjaxError } from "discourse/lib/ajax-error";
+import { parseAsync } from "discourse/lib/text";
+import { tokenRange } from "../discourse-table-builder/lib/utilities";
 
 export default apiInitializer("0.11.1", (api) => {
-  const site = api.container.lookup("site:main");
-  const currentUser = api.getCurrentUser();
+  const site = api.container.lookup("service:site");
 
   function createButton() {
     const openPopupBtn = document.createElement("button");
@@ -30,19 +31,22 @@ export default apiInitializer("0.11.1", (api) => {
   }
 
   function generateModal(event) {
-    const table = event.target.parentNode.lastElementChild;
-    const tempTable = table.cloneNode(true);
     const tableId = event.target.getAttribute("data-table-id");
 
     return ajax(`/posts/${this.id}`, { type: "GET" })
-      .then((post) => {
-        showModal("insert-table-modal", {
-          model: post,
-        }).setProperties({
-          tableHtml: tempTable,
-          tableId,
-        });
-      })
+      .then((post) =>
+        parseAsync(post.raw).then((tokens) => {
+          const allTables = tokenRange(tokens, "table_open", "table_close");
+          const tableTokens = allTables[tableId];
+
+          showModal("insert-table-modal", {
+            model: post,
+          }).setProperties({
+            tableId,
+            tableTokens,
+          });
+        })
+      )
       .catch(popupAjaxError);
   }
 
@@ -69,14 +73,14 @@ export default apiInitializer("0.11.1", (api) => {
 
   api.decorateCookedElement(
     (post, helper) => {
-      const postOwner = helper.widget.attrs.username;
+      const canEdit = helper.widget.attrs.canEdit;
 
-      if (postOwner !== currentUser.username) {
+      if (!canEdit) {
         return;
       }
 
       schedule("afterRender", () => {
-        const tables = post.querySelectorAll("table");
+        const tables = post.querySelectorAll(".md-table table");
         generatePopups(tables, helper.widget.attrs);
       });
     },

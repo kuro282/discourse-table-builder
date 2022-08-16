@@ -1,20 +1,26 @@
 import { action } from "@ember/object";
 import loadScript from "discourse/lib/load-script";
-import { arrayToTable, findTableRegex, tableToObj } from "../lib/utilities";
-import GlimmerComponent from "discourse/components/glimmer";
+import {
+  arrayToTable,
+  findTableRegex,
+  tokenRange,
+} from "../discourse-table-builder/lib/utilities";
+import Component from "@glimmer/component";
 import { ajax } from "discourse/lib/ajax";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 import I18n from "I18n";
 import { schedule } from "@ember/runloop";
 import { tracked } from "@glimmer/tracking";
 
-export default class SpreadsheetEditor extends GlimmerComponent {
+export default class SpreadsheetEditor extends Component {
   @tracked showEditReason = false;
   spreadsheet = null;
+  defaultColWidth = 150;
+  @tracked loading = null;
 
   // Getters:
   get isEditingTable() {
-    if (this.args.tableHtml) {
+    if (this.args.tableTokens) {
       return true;
     }
 
@@ -49,7 +55,7 @@ export default class SpreadsheetEditor extends GlimmerComponent {
     schedule("afterRender", () => {
       this.loadLibraries().then(() => {
         if (this.isEditingTable) {
-          this.buildPopulatedTable(this.args.tableHtml);
+          this.buildPopulatedTable(this.args.tableTokens);
         } else {
           this.buildNewTable();
         }
@@ -87,9 +93,12 @@ export default class SpreadsheetEditor extends GlimmerComponent {
 
   // Helper Methods:
   loadLibraries() {
-    return loadScript(settings.theme_uploads_local.jsuites).then(() => {
-      return loadScript(settings.theme_uploads_local.jspreadsheet);
-    });
+    this.loading = true;
+    return loadScript(settings.theme_uploads_local.jsuites)
+      .then(() => {
+        return loadScript(settings.theme_uploads_local.jspreadsheet);
+      })
+      .finally(() => (this.loading = false));
   }
 
   buildNewTable() {
@@ -97,47 +106,89 @@ export default class SpreadsheetEditor extends GlimmerComponent {
       ["", "", ""],
       ["", "", ""],
       ["", "", ""],
+      ["", "", ""],
+      ["", "", ""],
+      ["", "", ""],
     ];
 
     const columns = [
-      { title: "Column 1", width: 150 },
-      { title: "Column 2", width: 150 },
-      { title: "Column 3", width: 150 },
+      {
+        title: I18n.t(
+          themePrefix("discourse_table_builder.default_header.col_1")
+        ),
+        width: this.defaultColWidth,
+      },
+      {
+        title: I18n.t(
+          themePrefix("discourse_table_builder.default_header.col_2")
+        ),
+        width: this.defaultColWidth,
+      },
+      {
+        title: I18n.t(
+          themePrefix("discourse_table_builder.default_header.col_3")
+        ),
+        width: this.defaultColWidth,
+      },
+      {
+        title: I18n.t(
+          themePrefix("discourse_table_builder.default_header.col_4")
+        ),
+        width: this.defaultColWidth,
+      },
     ];
 
     return this.buildSpreadsheet(data, columns);
   }
 
-  buildPopulatedTable(table) {
-    const tableObject = tableToObj(table);
-    const headings = [];
-    const tableData = [];
+  extractTableContent(data) {
+    return data
+      .flat()
+      .filter((t) => t.type === "inline")
+      .map((t) => t.content);
+  }
 
-    tableObject.forEach((object) => {
-      // Build Headings
-      if (!headings.includes(...Object.keys(object))) {
-        headings.push(...Object.keys(object));
+  buildPopulatedTable(tableTokens) {
+    const contentRows = tokenRange(tableTokens, "tr_open", "tr_close");
+    const rows = [];
+    let headings;
+    const rowWidthFactor = 8;
+
+    contentRows.forEach((row, index) => {
+      if (index === 0) {
+        // headings
+        headings = this.extractTableContent(row).map((heading) => {
+          return {
+            title: heading,
+            width: Math.max(
+              heading.length * rowWidthFactor,
+              this.defaultColWidth
+            ),
+            align: "left",
+          };
+        });
+      } else {
+        // rows:
+        rows.push(this.extractTableContent(row));
       }
-
-      // Build Table Data
-      tableData.push([...Object.values(object)]);
     });
 
-    const columns = headings.map((heading) => {
-      return {
-        title: heading,
-        width: heading.length * 15,
-      };
-    });
-
-    return this.buildSpreadsheet(tableData, columns);
+    return this.buildSpreadsheet(rows, headings);
   }
 
   buildSpreadsheet(data, columns, opts = {}) {
+    const postNumber = this.args.model?.post_number;
+    const exportFileName = postNumber
+      ? `post-${postNumber}-table-export`
+      : `post-table-export`;
+
     // eslint-disable-next-line no-undef
     this.spreadsheet = jspreadsheet(this.spreadsheet, {
       data,
       columns,
+      defaultColAlign: "left",
+      wordWrap: true,
+      csvFileName: exportFileName,
       ...opts,
     });
   }
@@ -152,6 +203,8 @@ export default class SpreadsheetEditor extends GlimmerComponent {
       editedTable = raw.replace(findTableRegex(), newRaw);
     }
 
+    // replace null characters
+    editedTable = editedTable.replace(/\0/g, "\ufffd");
     return editedTable;
   }
 

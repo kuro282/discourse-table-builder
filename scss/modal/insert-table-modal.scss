@@ -24,8 +24,18 @@
   align-items: flex-start;
 
   .modal-inner-container {
-    --modal-max-width: 90%;
-    width: max-content;
+    --modal-max-width: $reply-area-max-width;
+    width: $reply-area-max-width;
+
+    @media screen and (max-width: 1200px) {
+      --modal-max-width: 90%;
+      width: 100vw;
+    }
+  }
+
+  .modal-body {
+    padding: 0;
+    margin: 0.5em;
   }
 
   .btn-edit-reason {
@@ -47,6 +57,17 @@
       li {
         margin-block: 0.25rem;
         color: var(--primary-high);
+      }
+    }
+  }
+
+  .jexcel_container {
+    padding: 0.5em;
+    min-width: 100%;
+    .jexcel_content {
+      min-width: 100%;
+      table.jexcel {
+        min-width: 100%;
       }
     }
   }
